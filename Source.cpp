@@ -5,8 +5,23 @@
 #include <random>
 #include <string>
 #include <thread>
+#include <vector>
 
 using namespace std;
+
+enum class FieldElement : char
+{
+    Empty,
+    Wall,
+    Tetronimo_0,
+    Tetronimo_1,
+    Tetronimo_2,
+    Tetronimo_3,
+    Tetronimo_4,
+    Tetronimo_5,
+    Tetronimo_6,
+    CompleteLine
+};
 
 const int field_width = 12;
 const int field_height = 18;
@@ -14,12 +29,13 @@ const int field_x_offset = 2;
 const int field_y_offset = 2;
 const int screen_width = field_width + field_x_offset * 2;
 const int screen_height = field_height + field_y_offset * 2;
+const int update_delay = 50;
 
 HANDLE console = INVALID_HANDLE_VALUE;
 CHAR_INFO screen_buffer[screen_width * screen_height];
 wstring tetronimos[7];
-char field[field_width * field_height] = { 0 };
-int force_down_time = 20;
+FieldElement field[field_width * field_height] = { FieldElement::Empty };
+int force_down_time = 1000;
 
 int rotate(int px, int py, int r)
 {
@@ -57,7 +73,7 @@ bool valid_position(int t, int x, int y, int r)
         {
             if (tetronimos[t][rotate(px, py, r)] == L'X')
             {
-                if (x + px < 0 || x + px >= field_width || y + py < 0 || y + py >= field_height || field[x + px + (y + py) * field_width] != 0)
+                if (x + px < 0 || x + px >= field_width || y + py < 0 || y + py >= field_height || field[x + px + (y + py) * field_width] != FieldElement::Empty)
                 {
                     return false;
                 }
@@ -168,7 +184,7 @@ int main()
     tetronimos[6].append(L"    ");
 
     // Setup character attributes
-    WORD attributes[9] =
+    WORD attributes[10] =
     {
         0,
         BACKGROUND_BLUE,
@@ -179,6 +195,7 @@ int main()
         BACKGROUND_RED | BACKGROUND_GREEN,
         BACKGROUND_RED | BACKGROUND_BLUE,
         BACKGROUND_GREEN | BACKGROUND_BLUE,
+        BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE | BACKGROUND_INTENSITY
     };
 
     // Clear the screen
@@ -194,13 +211,13 @@ int main()
     // Setup the playfield
     for (int y = 0; y < field_height; ++y)
     {
-        field[0 + y * field_width] = 1;
-        field[field_width - 1 + y * field_width] = 1;
+        field[0 + y * field_width] = FieldElement::Wall;
+        field[field_width - 1 + y * field_width] = FieldElement::Wall;
     }
 
     for (int x = 0; x < field_width; ++x)
     {
-        field[x + (field_height - 1) * field_width] = 1;
+        field[x + (field_height - 1) * field_width] = FieldElement::Wall;
     }
 
     // Run the game
@@ -211,24 +228,66 @@ int main()
     int cpy = 0;
     int rotation = 0;
     int rflags = 0;
-    int force_down_timer = 20;
-    
+    int force_down_timer = force_down_time;
+    vector<int> completed_lines;
+    bool drop = false;
+
     random_device r;
     default_random_engine rg(r());
     uniform_int_distribution<int> uniform_dist(0, 6);
 
     while (!exit)
     {
-        this_thread::sleep_for(50ms);
+        this_thread::sleep_for(chrono::milliseconds(update_delay));
 
-        if (current_piece < 0)
+        if (!completed_lines.empty())
+        {
+            attributes[(int)FieldElement::CompleteLine] ^= BACKGROUND_INTENSITY;
+
+            if (force_down_timer > update_delay)
+            {
+                force_down_timer -= update_delay;
+            }
+            else
+            {
+                for (int line : completed_lines)
+                {
+                    for (int x = 1; x < field_width - 1; ++x)
+                    {
+                        field[x + line * field_width] = FieldElement::Empty;
+                    }
+                }
+
+                completed_lines.clear();
+
+                drop = true;
+            }
+        }
+        else if (drop)
+        {
+            drop = false;
+
+            for (int y = field_height - 1; y > 0; --y)
+            {
+                for (int x = 1; x < field_width - 1; ++x)
+                {
+                    if (field[x + y * field_width] == FieldElement::Empty && field[x + (y - 1) * field_width] != FieldElement::Empty)
+                    {
+                        field[x + y * field_width] = field[x + (y - 1) * field_width];
+                        field[x + (y - 1) * field_width] = FieldElement::Empty;
+                        drop = true;
+                    }
+                }
+            }
+        }
+        else if (current_piece < 0)
         {
             current_piece = uniform_dist(rg);
             cpx = field_width / 2;
             cpy = 0;
             rotation = 0;
             rflags &= ~3;
-            force_down_timer = 20;
+            force_down_timer = force_down_time;
 
             if (!valid_position(current_piece, cpx, cpy, rotation))
             {
@@ -305,7 +364,11 @@ int main()
                 move_down = true;
             }
 
-            if (--force_down_timer == 0)
+            if (force_down_timer > update_delay)
+            {
+                force_down_timer -= update_delay;
+            }
+            else
             {
                 move_down = true;
                 force_down_timer = force_down_time;
@@ -319,19 +382,48 @@ int main()
                 }
                 else
                 {
-                    //
+                    // Place the tetronimo in the field
                     for (int py = 0; py < 4; ++py)
                     {
                         for (int px = 0; px < 4; ++px)
                         {
                             if (tetronimos[current_piece][rotate(px, py, rotation)] == L'X')
                             {
-                                field[cpx + px + (cpy + py) * field_width] = current_piece + 2;
+                                field[cpx + px + (cpy + py) * field_width] = (FieldElement)((int)FieldElement::Tetronimo_0 + current_piece);
                             }
                         }
                     }
 
                     current_piece = -1;
+
+                    // Look for any completed lines
+                    for (int py = 0; py < 4; ++py)
+                    {
+                        bool complete = true;
+
+                        for (int x = 1; x < field_width - 1; ++x)
+                        {
+                            FieldElement element = field[x + (py + cpy) * field_width];
+                            if (element < FieldElement::Tetronimo_0 || element > FieldElement::Tetronimo_6)
+                            {
+                                complete = false;
+                                break;
+                            }
+                        }
+
+                        if (complete)
+                        {
+                            for (int x = 1; x < field_width - 1; ++x)
+                            {
+                                field[x + (cpy + py) * field_width] = FieldElement::CompleteLine;
+                            }
+
+                            completed_lines.push_back(cpy + py);
+
+                            attributes[(int)FieldElement::CompleteLine] |= BACKGROUND_INTENSITY;
+                            force_down_time = 500;
+                        }
+                    }
                 }
             }
         }
@@ -341,7 +433,7 @@ int main()
         {
             for (int x = 0; x < field_width; ++x)
             {
-                screen_buffer[x + field_x_offset + (y + field_y_offset) * screen_width].Attributes = attributes[field[x + y * field_width]];
+                screen_buffer[x + field_x_offset + (y + field_y_offset) * screen_width].Attributes = attributes[(int)field[x + y * field_width]];
             }
         }
 
