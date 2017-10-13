@@ -84,6 +84,62 @@ bool valid_position(int t, int x, int y, int r)
     return true;
 }
 
+bool can_drop(int y)
+{
+    for (int x = 1; x < field_width - 1; ++x)
+    {
+        if (field[x + y * field_width] != FieldElement::Empty && field[x + (y + 1) * field_width] != FieldElement::Empty)
+        {
+            return false;
+        }
+    }
+
+    return true;
+}
+
+bool drop_lines(int start_y)
+{
+    bool dropped_any = false;
+
+    for (int y = start_y; y >= 0; --y)
+    {
+        for (int x = 1; x < field_width - 1; ++x)
+        {
+            if (field[x + y * field_width] != FieldElement::Empty)
+            {
+                dropped_any = true;
+                field[x + (y + 1) * field_width] = field[x + y * field_width];
+                field[x + y * field_width] = FieldElement::Empty;
+            }
+        }
+    }
+
+    return dropped_any;
+}
+
+void find_full_lines(int start_y, int end_y, vector<int>& full_lines)
+{
+    for (int y = start_y; y < end_y; ++y)
+    {
+        bool full = true;
+
+        for (int x = 1; x < field_width - 1; ++x)
+        {
+            FieldElement element = field[x + y * field_width];
+            if (element < FieldElement::Tetronimo_0 || element > FieldElement::Tetronimo_6)
+            {
+                full = false;
+                break;
+            }
+        }
+
+        if (full)
+        {
+            full_lines.push_back(y);
+        }
+    }
+}
+
 bool key_down(int vk_key)
 {
     return (GetAsyncKeyState(vk_key) & 0x8000) == 0x8000;
@@ -265,18 +321,39 @@ int main()
         }
         else if (drop)
         {
-            drop = false;
+            // Find the lowest line into which the line above may drop
+            int start_y = -1;
 
-            for (int y = field_height - 1; y > 0; --y)
+            for (int y = field_height; y >= 0; --y)
             {
-                for (int x = 1; x < field_width - 1; ++x)
+                if (can_drop(y))
                 {
-                    if (field[x + y * field_width] == FieldElement::Empty && field[x + (y - 1) * field_width] != FieldElement::Empty)
+                    start_y = y;
+                    break;
+                }
+            }
+
+            if (start_y >= 0)
+            {
+                drop = drop_lines(start_y);
+            }
+            else
+            {
+                // Look for any completed lines
+                find_full_lines(0, field_height, completed_lines);
+
+                for (int line : completed_lines)
+                {
+                    for (int x = 1; x < field_width - 1; ++x)
                     {
-                        field[x + y * field_width] = field[x + (y - 1) * field_width];
-                        field[x + (y - 1) * field_width] = FieldElement::Empty;
-                        drop = true;
+                        field[x + line * field_width] = FieldElement::CompleteLine;
                     }
+                }
+
+                if (!completed_lines.empty())
+                {
+                    attributes[(int)FieldElement::CompleteLine] |= BACKGROUND_INTENSITY;
+                    force_down_time = 500;
                 }
             }
         }
@@ -397,32 +474,20 @@ int main()
                     current_piece = -1;
 
                     // Look for any completed lines
-                    for (int py = 0; py < 4; ++py)
-                    {
-                        bool complete = true;
+                    find_full_lines(cpy, cpy + 4, completed_lines);
 
+                    for (int line : completed_lines)
+                    {
                         for (int x = 1; x < field_width - 1; ++x)
                         {
-                            FieldElement element = field[x + (py + cpy) * field_width];
-                            if (element < FieldElement::Tetronimo_0 || element > FieldElement::Tetronimo_6)
-                            {
-                                complete = false;
-                                break;
-                            }
+                            field[x + line * field_width] = FieldElement::CompleteLine;
                         }
+                    }
 
-                        if (complete)
-                        {
-                            for (int x = 1; x < field_width - 1; ++x)
-                            {
-                                field[x + (cpy + py) * field_width] = FieldElement::CompleteLine;
-                            }
-
-                            completed_lines.push_back(cpy + py);
-
-                            attributes[(int)FieldElement::CompleteLine] |= BACKGROUND_INTENSITY;
-                            force_down_time = 500;
-                        }
+                    if (!completed_lines.empty())
+                    {
+                        attributes[(int)FieldElement::CompleteLine] |= BACKGROUND_INTENSITY;
+                        force_down_time = 500;
                     }
                 }
             }
