@@ -12,7 +12,6 @@ using namespace std;
 enum class FieldElement : char
 {
     Empty,
-    Wall,
     Tetronimo_0,
     Tetronimo_1,
     Tetronimo_2,
@@ -23,10 +22,10 @@ enum class FieldElement : char
     CompleteLine
 };
 
-const int field_width = 12;
-const int field_height = 18;
-const int field_x_offset = 2;
-const int field_y_offset = 2;
+const int field_width = 10;
+const int field_height = 20;
+const int field_x_offset = 8;
+const int field_y_offset = 8;
 const int screen_width = field_width + field_x_offset * 2;
 const int screen_height = field_height + field_y_offset * 2;
 const int update_delay = 50;
@@ -86,7 +85,7 @@ bool valid_position(int t, int x, int y, int r)
 
 bool can_drop(int y)
 {
-    for (int x = 1; x < field_width - 1; ++x)
+    for (int x = 0; x < field_width; ++x)
     {
         if (field[x + y * field_width] != FieldElement::Empty && field[x + (y + 1) * field_width] != FieldElement::Empty)
         {
@@ -103,7 +102,7 @@ bool drop_lines(int start_y)
 
     for (int y = start_y; y >= 0; --y)
     {
-        for (int x = 1; x < field_width - 1; ++x)
+        for (int x = 0; x < field_width; ++x)
         {
             if (field[x + y * field_width] != FieldElement::Empty)
             {
@@ -123,7 +122,7 @@ void find_full_lines(int start_y, int end_y, vector<int>& full_lines)
     {
         bool full = true;
 
-        for (int x = 1; x < field_width - 1; ++x)
+        for (int x = 0; x < field_width; ++x)
         {
             FieldElement element = field[x + y * field_width];
             if (element < FieldElement::Tetronimo_0 || element > FieldElement::Tetronimo_6)
@@ -240,10 +239,9 @@ int main()
     tetronimos[6].append(L"    ");
 
     // Setup character attributes
-    WORD attributes[10] =
+    WORD attributes[9] =
     {
-        0,
-        BACKGROUND_BLUE,
+        FOREGROUND_BLUE,
         BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE,
         BACKGROUND_RED,
         BACKGROUND_GREEN,
@@ -252,6 +250,19 @@ int main()
         BACKGROUND_RED | BACKGROUND_BLUE,
         BACKGROUND_GREEN | BACKGROUND_BLUE,
         BACKGROUND_RED | BACKGROUND_GREEN | BACKGROUND_BLUE | BACKGROUND_INTENSITY
+    };
+    
+    wchar_t glyphs[9] =
+    {
+        L'\u2592',
+        L'\u25cb',
+        L'\u25cf',
+        L'\u2665',
+        L'\u25a0',
+        L'\u263c',
+        L'\u2666',
+        L'\u25ca',
+        L'\u2660'
     };
 
     // Clear the screen
@@ -264,16 +275,16 @@ int main()
         }
     }
 
-    // Setup the playfield
+    // Draw fixed elements
     for (int y = 0; y < field_height; ++y)
     {
-        field[0 + y * field_width] = FieldElement::Wall;
-        field[field_width - 1 + y * field_width] = FieldElement::Wall;
+        screen_buffer[field_x_offset - 1 + (y + field_y_offset) * screen_width].Attributes = BACKGROUND_BLUE;
+        screen_buffer[field_x_offset + field_width + (y + field_y_offset) * screen_width].Attributes = BACKGROUND_BLUE;
     }
 
-    for (int x = 0; x < field_width; ++x)
+    for (int x = 0; x < field_width + 2; ++x)
     {
-        field[x + (field_height - 1) * field_width] = FieldElement::Wall;
+        screen_buffer[field_x_offset - 1 + x + (field_height + field_y_offset) * screen_width].Attributes = BACKGROUND_BLUE;
     }
 
     // Run the game
@@ -308,7 +319,7 @@ int main()
             {
                 for (int line : completed_lines)
                 {
-                    for (int x = 1; x < field_width - 1; ++x)
+                    for (int x = 0; x < field_width; ++x)
                     {
                         field[x + line * field_width] = FieldElement::Empty;
                     }
@@ -344,7 +355,7 @@ int main()
 
                 for (int line : completed_lines)
                 {
-                    for (int x = 1; x < field_width - 1; ++x)
+                    for (int x = 0; x < field_width; ++x)
                     {
                         field[x + line * field_width] = FieldElement::CompleteLine;
                     }
@@ -478,7 +489,7 @@ int main()
 
                     for (int line : completed_lines)
                     {
-                        for (int x = 1; x < field_width - 1; ++x)
+                        for (int x = 0; x < field_width; ++x)
                         {
                             field[x + line * field_width] = FieldElement::CompleteLine;
                         }
@@ -498,19 +509,23 @@ int main()
         {
             for (int x = 0; x < field_width; ++x)
             {
+                screen_buffer[x + field_x_offset + (y + field_y_offset) * screen_width].Char.UnicodeChar = glyphs[(int)field[x + y * field_width]];
                 screen_buffer[x + field_x_offset + (y + field_y_offset) * screen_width].Attributes = attributes[(int)field[x + y * field_width]];
             }
         }
 
         if (current_piece != -1)
         {
+            FieldElement element = (FieldElement)((int)FieldElement::Tetronimo_0 + current_piece);
+
             for (int y = 0; y < 4; ++y)
             {
                 for (int x = 0; x < 4; ++x)
                 {
                     if (tetronimos[current_piece][rotate(x, y, rotation)] == L'X')
                     {
-                       screen_buffer[x + field_x_offset + cpx + (y + field_y_offset + cpy) * screen_width].Attributes = attributes[current_piece + 2];
+                        screen_buffer[x + field_x_offset + cpx + (y + field_y_offset + cpy) * screen_width].Char.UnicodeChar = glyphs[(int)element];
+                        screen_buffer[x + field_x_offset + cpx + (y + field_y_offset + cpy) * screen_width].Attributes = attributes[(int)element];
                     }
                 }
             }
